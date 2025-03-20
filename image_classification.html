@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片分类标注系统</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .setup-panel, .annotation-panel {
+            margin-bottom: 20px;
+        }
+        .annotation-panel {
+            display: none;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .image-container {
+            text-align: center;
+            margin: 20px 0;
+            min-height: 400px;
+        }
+        .image-container img {
+            max-width: 100%;
+            max-height: 500px;
+            border: 1px solid #ddd;
+        }
+        .labels-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .label-btn {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        .label-btn:hover {
+            background-color: #45a049;
+        }
+        .progress {
+            margin-top: 20px;
+            width: 100%;
+            background-color: #ddd;
+            border-radius: 4px;
+            height: 20px;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #4CAF50;
+            border-radius: 4px;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .input-group input, .input-group textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0b7dda;
+        }
+        .shortcut-info {
+            margin-top: 10px;
+            color: #666;
+            font-style: italic;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f8f8;
+            border-radius: 4px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>图片分类标注系统</h1>
+        
+        <!-- 设置面板 -->
+        <div id="setupPanel" class="setup-panel">
+            <h2>项目设置</h2>
+            <div class="input-group">
+                <label for="dataPath">选择图片文件夹</label>
+                <input type="file" id="dataPath" webkitdirectory directory />
+            </div>
+            
+            <div class="input-group">
+                <label for="labelsInput">分类标签（每行一个标签，格式：标签号 标签名，例如：0 猫）</label>
+                <textarea id="labelsInput" rows="5" placeholder="0 猫
+1 狗
+2 鸟"></textarea>
+            </div>
+            
+            <button id="startBtn">开始标注</button>
+        </div>
+        
+        <!-- 标注面板 -->
+        <div id="annotationPanel" class="annotation-panel">
+            <h2>图片标注</h2>
+            
+            <div class="image-container">
+                <img id="currentImage" src="" alt="待标注图片" />
+                <div id="imageName" style="margin-top: 10px; font-weight: bold;"></div>
+            </div>
+            
+            <div id="labelsContainer" class="labels-container">
+                <!-- 标签按钮将在这里动态生成 -->
+            </div>
+            
+            <div class="shortcut-info">
+                提示：可以使用数字键快速标注（对应标签号）
+            </div>
+            
+            <div class="progress">
+                <div id="progressBar" class="progress-bar" style="width: 0%">0%</div>
+            </div>
+            
+            <div class="status" id="statusInfo">
+                准备开始标注...
+            </div>
+            
+            <div class="controls">
+                <button id="prevBtn">上一张</button>
+                <button id="nextBtn">下一张</button>
+                <button id="exportBtn">导出标注结果</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let imageFiles = [];
+        let currentImageIndex = 0;
+        let labels = {};
+        let annotations = {};
+        
+        // DOM 元素
+        const setupPanel = document.getElementById('setupPanel');
+        const annotationPanel = document.getElementById('annotationPanel');
+        const startBtn = document.getElementById('startBtn');
+        const exportBtn = document.getElementById('exportBtn');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const dataPathInput = document.getElementById('dataPath');
+        const labelsInput = document.getElementById('labelsInput');
+        const currentImage = document.getElementById('currentImage');
+        const imageName = document.getElementById('imageName');
+        const labelsContainer = document.getElementById('labelsContainer');
+        const progressBar = document.getElementById('progressBar');
+        const statusInfo = document.getElementById('statusInfo');
+        
+        // 开始标注按钮点击事件
+        startBtn.addEventListener('click', function() {
+            // 验证输入
+            if (dataPathInput.files.length === 0) {
+                alert('请选择数据路径！');
+                return;
+            }
+            
+            if (labelsInput.value.trim() === '') {
+                alert('请输入分类标签！');
+                return;
+            }
+            
+            // 解析标签
+            parseLabels();
+            
+            // 筛选图片文件（只读取当前路径下的图片，不包括子路径）
+            const selectedFiles = Array.from(dataPathInput.files);
+            const topLevelPath = getTopLevelPath(selectedFiles);
+            
+            // 只保留顶层目录下的图片
+            imageFiles = selectedFiles.filter(file => {
+                const ext = file.name.toLowerCase().split('.').pop();
+                const isImage = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext);
+                const isTopLevel = getFileDirectory(file) === topLevelPath;
+                return isImage && isTopLevel;
+            });
+            
+            if (imageFiles.length === 0) {
+                alert('所选路径中没有找到图片文件！');
+                return;
+            }
+            
+            // 显示标注面板
+            setupPanel.style.display = 'none';
+            annotationPanel.style.display = 'block';
+            
+            // 创建标签按钮
+            createLabelButtons();
+            
+            // 显示第一张图片
+            showImage(0);
+            
+            // 初始化键盘事件监听
+            initKeyboardShortcuts();
+            
+            statusInfo.textContent = `开始标注，共 ${imageFiles.length} 张图片`;
+        });
+        
+        // 获取顶层目录路径
+        function getTopLevelPath(files) {
+            if (files.length === 0) return '';
+            // 获取第一个文件的路径
+            const fullPath = files[0].webkitRelativePath || '';
+            // 提取顶级文件夹
+            const parts = fullPath.split('/');
+            return parts.length > 0 ? parts[0] : '';
+        }
+        
+        // 获取文件所在目录
+        function getFileDirectory(file) {
+            const fullPath = file.webkitRelativePath || '';
+            const parts = fullPath.split('/');
+            return parts.length > 0 ? parts[0] : '';
+        }
+        
+        // 解析标签
+        function parseLabels() {
+            labels = {};
+            const lines = labelsInput.value.trim().split('\n');
+            
+            lines.forEach(line => {
+                const parts = line.trim().split(' ');
+                if (parts.length >= 2) {
+                    const labelId = parts[0].trim();
+                    const labelName = parts.slice(1).join(' ').trim();
+                    labels[labelId] = labelName;
+                }
+            });
+        }
+        
+        // 创建标签按钮
+        function createLabelButtons() {
+            labelsContainer.innerHTML = '';
+            
+            Object.entries(labels).forEach(([id, name]) => {
+                const button = document.createElement('button');
+                button.className = 'label-btn';
+                button.textContent = `${id}: ${name}`;
+                button.dataset.labelId = id;
+                
+                button.addEventListener('click', function() {
+                    applyLabel(id);
+                });
+                
+                labelsContainer.appendChild(button);
+            });
+        }
+        
+        // 显示图片
+        function showImage(index) {
+            if (index >= 0 && index < imageFiles.length) {
+                currentImageIndex = index;
+                const file = imageFiles[index];
+                
+                // 显示图片
+                currentImage.src = URL.createObjectURL(file);
+                imageName.textContent = file.name;
+                
+                // 更新进度条
+                const progress = Math.round((index / imageFiles.length) * 100);
+                progressBar.style.width = `${progress}%`;
+                progressBar.textContent = `${progress}%`;
+                
+                // 如果该图片已经标注过，高亮对应的标签按钮
+                if (annotations[file.name]) {
+                    const labelId = annotations[file.name];
+                    highlightLabel(labelId);
+                } else {
+                    // 清除所有高亮
+                    clearLabelHighlights();
+                }
+                
+                statusInfo.textContent = `正在标注：${index + 1}/${imageFiles.length} - ${file.name}`;
+            }
+        }
+        
+        // 应用标签
+        function applyLabel(labelId) {
+            if (currentImageIndex < imageFiles.length) {
+                const fileName = imageFiles[currentImageIndex].name;
+                annotations[fileName] = labelId;
+                
+                // 高亮标签
+                highlightLabel(labelId);
+                
+                // 自动显示下一张图片
+                if (currentImageIndex < imageFiles.length - 1) {
+                    showImage(currentImageIndex + 1);
+                } else {
+                    statusInfo.textContent = `标注完成！共标注 ${Object.keys(annotations).length}/${imageFiles.length} 张图片。点击"导出标注结果"按钮保存。`;
+                }
+            }
+        }
+        
+        // 高亮显示选中的标签
+        function highlightLabel(labelId) {
+            // 清除所有高亮
+            clearLabelHighlights();
+            
+            // 为当前选中的标签添加高亮
+            const buttons = labelsContainer.querySelectorAll('.label-btn');
+            buttons.forEach(button => {
+                if (button.dataset.labelId === labelId) {
+                    button.style.backgroundColor = '#ff9800';
+                }
+            });
+        }
+        
+        // 清除所有标签高亮
+        function clearLabelHighlights() {
+            const buttons = labelsContainer.querySelectorAll('.label-btn');
+            buttons.forEach(button => {
+                button.style.backgroundColor = '#4CAF50';
+            });
+        }
+        
+        // 初始化键盘快捷键
+        function initKeyboardShortcuts() {
+            document.addEventListener('keydown', function(e) {
+                // 如果按下的是数字键
+                if (/^\d$/.test(e.key)) {
+                    const labelId = e.key;
+                    if (labels[labelId]) {
+                        applyLabel(labelId);
+                    }
+                }
+                // 向左箭头或 A 键：上一张图片
+                else if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') {
+                    if (currentImageIndex > 0) {
+                        showImage(currentImageIndex - 1);
+                    }
+                }
+                // 向右箭头或 D 键：下一张图片
+                else if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
+                    if (currentImageIndex < imageFiles.length - 1) {
+                        showImage(currentImageIndex + 1);
+                    }
+                }
+            });
+        }
+        
+        // 上一张/下一张按钮事件
+        prevBtn.addEventListener('click', function() {
+            if (currentImageIndex > 0) {
+                showImage(currentImageIndex - 1);
+            }
+        });
+        
+        nextBtn.addEventListener('click', function() {
+            if (currentImageIndex < imageFiles.length - 1) {
+                showImage(currentImageIndex + 1);
+            }
+        });
+        
+        // 导出标注结果
+        exportBtn.addEventListener('click', function() {
+            if (Object.keys(annotations).length === 0) {
+                alert('没有标注数据可以导出！');
+                return;
+            }
+            
+            // 格式化为JSON
+            const result = {
+                labels: labels,
+                annotations: annotations
+            };
+            
+            const json = JSON.stringify(result, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            // 创建下载链接
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'image_annotations.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            statusInfo.textContent = '标注结果已导出！';
+        });
+    </script>
+</body>
+</html>
